@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ILT Logistics Srl - Tracciabilità Consegne</title>
+    <!-- Font: Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Icone FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* --- VARIABILI GENERALI --- */
+        :root {
+            --ilt-blue: #1e293b;
+            --ilt-orange: #f97316;
+            --ilt-text: #f8fafc;
+            --ilt-bg: #f1f5f9;
+            
+            /* Variabili Tracking Tool */
+            --trk-primary: #0ea5e9;
+            --trk-success: #10b981;
+            --trk-warning: #f59e0b;
+            --trk-danger: #ef4444;
+            --trk-bg-body: #0f172a;
+            --trk-bg-card: #1e293b;
+            --trk-text-primary: #f1f5f9;
+            --trk-text-secondary: #94a3b8;
+            --trk-border-color: #334155;
+            
+            /* Colore WhatsApp */
+            --wa-green: #25D366;
+            --wa-dark: #128C7E;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--ilt-bg);
+            color: var(--ilt-blue);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        a { text-decoration: none; color: inherit; }
+        ul { list-style: none; }
+
+        /* --- HEADER --- */
+        header {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            background: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+
+        .logo { font-size: 1.5rem; font-weight: 700; color: var(--ilt-text); display: flex; align-items: center; gap: 10px; }
+        .logo i { color: var(--ilt-orange); }
+
+        nav { display: flex; align-items: center; gap: 2rem; }
+        nav ul.nav-links { display: flex; gap: 2rem; margin: 0; padding: 0; }
+        nav a.nav-link { color: var(--ilt-text); font-weight: 500; transition: color 0.3s; }
+        nav a.nav-link:hover { color: var(--ilt-orange); }
+
+        .nav-actions { display: flex; align-items: center; gap: 1rem; }
+        
+        .btn-login {
+            padding: 0.5rem 1.2rem; background: transparent; color: var(--ilt-text);
+            border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; font-weight: 600; cursor: pointer;
+        }
+        .btn-login:hover { background: rgba(255,255,255,0.1); }
+
+        .btn-nav {
+            padding: 0.5rem 1.2rem; background: var(--ilt-orange); color: white; border: none;
+            border-radius: 4px; font-weight: 600; cursor: pointer;
+        }
+        .btn-nav:hover { background: #ea580c; }
+
+        /* --- HERO SECTION --- */
+        .hero {
+            position: relative;
+            min-height: 90vh; 
+            background: var(--ilt-blue);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--ilt-text);
+            text-align: center;
+            transition: height 0.5s ease;
+        }
+
+        .city-grid {
+            position: absolute; width: 100%; height: 100%;
+            background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: 60px 60px;
+            transform: perspective(500px) rotateX(20deg) scale(1.2) translateY(100px);
+            transform-origin: bottom; opacity: 0.5; z-index: 1;
+        }
+
+        .hero-content {
+            position: relative; z-index: 10; max-width: 800px; padding: 2rem;
+            animation: fadeInUp 1s forwards;
+        }
+
+        .hero h1 { font-size: 3rem; line-height: 1.2; margin-bottom: 1rem; text-transform: uppercase; }
+        .hero h1 span { color: var(--ilt-orange); }
+        .hero p { font-size: 1.2rem; color: #cbd5e1; margin-bottom: 2rem; }
+
+        .btn-tracker {
+            display: inline-block; padding: 1rem 2.5rem; background: var(--ilt-orange);
+            color: white; font-weight: 700; border-radius: 50px;
+            transition: all 0.3s; box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);
+            cursor: pointer; border: none;
+        }
+        .btn-tracker:hover { background: #ea580c; transform: translateY(-3px); }
+
+        /* --- TRACKING SECTION --- */
+        #tracking-section {
+            display: none;
+            width: 100%;
+            background: #0f172a;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 58, 95, 0.98) 100%),
+                        url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            padding: 4rem 1rem;
+            min-height: 100vh;
+            position: relative;
+            z-index: 50;
+            color: var(--trk-text-primary);
+        }
+
+        .tracker-container {
+            width: 100%; max-width: 500px; margin: 0 auto; text-align: center;
+            position: relative; top: -50px;
+        }
+
+        .tk-logo {
+            font-size: 2.5rem; font-weight: 900; margin-bottom: 10px;
+            background: linear-gradient(135deg, var(--trk-primary), var(--trk-success));
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; font-family: 'Segoe UI', sans-serif;
+        }
+        .tk-subtitle { color: var(--trk-text-secondary); margin-bottom: 40px; font-size: 1.1rem; font-family: 'Segoe UI', sans-serif; }
+
+        .tk-search-box {
+            background: var(--trk-bg-card); padding: 30px; border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3); border: 1px solid var(--trk-border-color);
+            margin-bottom: 20px;
+        }
+
+        .tk-input {
+            width: 100%; padding: 16px; border: 2px solid var(--trk-border-color); border-radius: 12px;
+            font-size: 1.2rem; background: var(--trk-bg-body); color: var(--trk-text-primary);
+            text-align: center; letter-spacing: 2px; margin-bottom: 15px; font-family: 'Segoe UI', sans-serif;
+        }
+        .tk-input:focus { outline: none; border-color: var(--trk-primary); }
+
+        .tk-btn {
+            width: 100%; padding: 16px; background: linear-gradient(135deg, var(--trk-primary), #0284c7);
+            color: white; border: none; border-radius: 12px; font-size: 1.1rem; font-weight: 700;
+            cursor: pointer; font-family: 'Segoe UI', sans-serif;
+        }
+
+        .tk-result-card {
+            background: var(--trk-bg-card); border-radius: 20px; padding: 30px;
+            border: 1px solid var(--trk-border-color); box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            display: none; animation: slideUp 0.4s ease;
+        }
+
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        .tk-status-icon {
+            width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 2.5rem; margin: 0 auto 20px;
+        }
+        .tk-status-icon.pending { background: rgba(245, 158, 11, 0.15); color: var(--trk-warning); }
+        .tk-status-icon.transit { background: rgba(14, 165, 233, 0.15); color: var(--trk-primary); animation: pulse 2s infinite; }
+        .tk-status-icon.completed { background: rgba(16, 185, 129, 0.15); color: var(--trk-success); }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.4); }
+            70% { box-shadow: 0 0 0 20px rgba(14, 165, 233, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
+        }
+
+        .tk-status-title { font-size: 1.5rem; font-weight: 800; margin-bottom: 10px; font-family: 'Segoe UI', sans-serif; }
+        .tk-status-message { color: var(--trk-text-secondary); margin-bottom: 25px; font-size: 1rem; line-height: 1.6; font-family: 'Segoe UI', sans-serif; }
+
+        .tk-info-grid { text-align: left; background: var(--trk-bg-body); padding: 20px; border-radius: 12px; margin-bottom: 20px; }
+        .tk-info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--trk-border-color); }
+        .tk-info-label { color: var(--trk-text-secondary); font-size: 0.9rem; }
+        .tk-info-value { font-weight: 600; color: var(--trk-text-primary); }
+
+        .tk-eta-box {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(6, 182, 212, 0.1));
+            border: 1px solid var(--trk-primary); border-radius: 12px; padding: 20px; margin-top: 20px;
+        }
+        .tk-eta-time { font-size: 2.5rem; font-weight: 800; color: var(--trk-primary); display: block; margin-bottom: 5px; }
+        .tk-eta-label { color: var(--trk-text-secondary); font-size: 0.9rem; }
+
+        .tk-progress-bar { width: 100%; height: 8px; background: var(--trk-bg-body); border-radius: 4px; margin-top: 15px; overflow: hidden; }
+        .tk-progress-fill { height: 100%; background: linear-gradient(90deg, var(--trk-primary), var(--trk-success)); border-radius: 4px; transition: width 0.5s ease; }
+
+        .tk-error-card {
+            background: rgba(239, 68, 68, 0.1); border: 1px solid var(--trk-danger); color: var(--trk-danger);
+            padding: 20px; border-radius: 12px; display: none; animation: slideUp 0.4s ease;
+        }
+        
+        .tk-back-btn { background: transparent; border: 2px solid var(--trk-border-color); color: var(--trk-text-secondary); margin-top: 15px; width: 100%; padding: 12px; border-radius: 12px; cursor: pointer; font-weight: 600; }
+        .tk-back-btn:hover { border-color: var(--trk-text-primary); color: var(--trk-text-primary); }
+
+        .close-tracker {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(255,255,255,0.1); color: white;
+            border: none; width: 40px; height: 40px; border-radius: 50%;
+            font-size: 1.2rem; cursor: pointer; z-index: 60;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.3s;
+        }
+        .close-tracker:hover { background: rgba(255,255,255,0.3); }
+
+        /* --- SEZIONE SERVIZI --- */
+        .services { padding: 5rem 2rem; max-width: 1200px; margin: 0 auto; margin-top: -50px; position: relative; z-index: 20; background: var(--ilt-bg); }
+        .section-header { text-align: center; margin-bottom: 3rem; }
+        .section-header h2 { font-size: 2.5rem; color: var(--ilt-blue); margin-bottom: 0.5rem; }
+        .section-header .line { width: 80px; height: 4px; background: var(--ilt-orange); margin: 0 auto; }
+
+        .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem; }
+        .service-card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); text-align: center; border-bottom: 4px solid transparent; transition: transform 0.3s; }
+        .service-card:hover { transform: translateY(-10px); border-bottom: 4px solid var(--ilt-orange); }
+        .icon-box { font-size: 2.5rem; color: var(--ilt-blue); margin-bottom: 1.5rem; background: #f1f5f9; width: 80px; height: 80px; line-height: 80px; border-radius: 50%; margin: 0 auto; transition: 0.3s; }
+        .service-card:hover .icon-box { background: var(--ilt-orange); color: white; transform: rotateY(180deg); }
+        .service-card h3 { margin-bottom: 0.8rem; color: var(--ilt-blue); }
+        .service-card p { color: #64748b; font-size: 0.9rem; }
+
+        /* --- SEZIONE CONTATTI (AGGIORNATA CON WHATSAPP) --- */
+        .contact-section { background: var(--ilt-blue); color: white; padding: 4rem 2rem; text-align: center; }
+        .contact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 3rem; max-width: 1000px; margin: 2rem auto; text-align: left; }
+        .contact-info h3 { color: var(--ilt-orange); margin-bottom: 1.5rem; font-size: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 0.5rem; }
+        .contact-item { display: flex; align-items: flex-start; gap: 15px; margin-bottom: 1.2rem; font-size: 1rem; }
+        .contact-item i { color: var(--ilt-orange); margin-top: 4px; width: 20px; text-align: center; }
+        .contact-item a { color: #f8fafc; transition: 0.2s; }
+        .contact-item a:hover { color: var(--ilt-orange); text-decoration: underline; }
+
+        /* Pulsante WhatsApp Styling */
+        .whatsapp-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background-color: var(--wa-green);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            text-decoration: none;
+            margin-top: 20px;
+            width: 100%;
+            box-shadow: 0 4px 15px rgba(37, 211, 102, 0.4);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .whatsapp-btn:hover {
+            background-color: var(--wa-dark);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(37, 211, 102, 0.6);
+            text-decoration: none; /* Rimuove sottolineatura */
+        }
+        
+        .whatsapp-btn i { font-size: 1.3rem; }
+
+        /* Form */
+        .contact-form { display: flex; flex-direction: column; gap: 10px; }
+        .contact-form input, .contact-form textarea {
+            padding: 12px; border-radius: 4px; border: none; font-family: inherit;
+        }
+        .contact-form button {
+            padding: 12px; background: var(--ilt-orange); border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer;
+        }
+        .contact-form button:hover { background: #ea580c; }
+
+        /* Footer */
+        footer { background: var(--ilt-blue); color: #94a3b8; padding: 2rem; text-align: center; font-size: 0.9rem; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        /* Animazione Generica */
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2rem; }
+            .nav-links, .nav-actions { display: none; }
+            .menu-toggle { display: block; color: white; font-size: 1.5rem; cursor: pointer; }
+            nav.mobile-open { flex-direction: column; position: absolute; top: 70px; left: 0; width: 100%; background: #1e293b; padding: 1rem; }
+            nav.mobile-open .nav-links, nav.mobile-open .nav-actions { display: flex; flex-direction: column; width: 100%; margin-bottom: 1rem; }
+        }
+        @media (min-width: 769px) { .menu-toggle { display: none; } }
+    </style>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="logo"><i class="fas fa-screwdriver-wrench"></i> ILT Logistics</div>
+        <nav id="mainNav">
+            <ul class="nav-links">
+                <li><a href="#home" class="nav-link" onclick="closeTracker()">Home</a></li>
+                <li><a href="#servizi" class="nav-link" onclick="closeTracker()">Servizi</a></li>
+                <li><a href="#contatti" class="nav-link" onclick="closeTracker()">Contatti</a></li>
+            </ul>
+            <div class="nav-actions">
+                <button class="btn-login" onclick="window.open('gipro.html', '_blank')"><i class="fas fa-user"></i> Login</button>
+                <!-- Link modificato per scorrere ai contatti -->
+                <a href="#contatti" class="btn-nav">Richiedi Intervento</a>
+            </div>
+        </nav>
+        <div class="menu-toggle" onclick="toggleMobileMenu()"><i class="fas fa-bars"></i></div>
+    </header>
+
+    <main>
+        <!-- Hero Section -->
+        <section id="home" class="hero">
+            <div class="city-grid"></div>
+            
+            <div class="hero-content" id="heroContent">
+                <h1>Installazioni Professionali <br> e <span>Logistica Rapida</span></h1>
+                <p>Da ILT Logistics ricevi un servizio completo: installiamo climatizzatori, caldaie ed elettrodomestici, e consegnamo la merce in tempi record.</p>
+                
+                <button class="btn-tracker" onclick="openTracker()">
+                    <i class="fas fa-map-marked-alt"></i> Traccia la mia consegna
+                </button>
+            </div>
+        </section>
+
+        <!-- Tracking Section -->
+        <section id="tracking-section">
+            <button class="close-tracker" onclick="closeTracker()" title="Chiudi Tracciamento"><i class="fas fa-times"></i></button>
+            
+            <div class="tracker-container">
+                <div class="tk-logo">GIPRO</div>
+                <p class="tk-subtitle">Tracciamento Consegna</p>
+
+                <div class="tk-search-box" id="tkSearchBox">
+                    <p style="margin-bottom: 20px; color: var(--trk-text-secondary);">Inserisci il codice della tua consegna</p>
+                    <input type="text" id="trackingId" class="tk-input" placeholder="Es: 0001" maxlength="10" autocomplete="off">
+                    <button class="tk-btn" onclick="Tracker.search()"><i class="fas fa-search"></i> Cerca Consegna</button>
+                </div>
+
+                <div class="tk-result-card" id="tkResultCard">
+                    <div class="tk-status-icon" id="tkStatusIcon"><i class="fas fa-truck"></i></div>
+                    <div class="tk-status-title" id="tkStatusTitle">In Consegna</div>
+                    <div class="tk-status-message" id="tkStatusMessage">Il corriere è in arrivo</div>
+
+                    <div class="tk-info-grid">
+                        <div class="tk-info-row"><span class="tk-info-label">Codice</span><span class="tk-info-value" id="tkInfoId">-</span></div>
+                        <div class="tk-info-row"><span class="tk-info-label">Operatore</span><span class="tk-info-value" id="tkInfoOperator">-</span></div>
+                        <div class="tk-info-row"><span class="tk-info-label">Indirizzo</span><span class="tk-info-value" id="tkInfoAddress">-</span></div>
+                    </div>
+
+                    <div class="tk-eta-box" id="tkEtaBox">
+                        <span class="tk-eta-time" id="tkEtaTime">--:--</span>
+                        <span class="tk-eta-label" id="tkEtaLabel">Orario stimato arrivo</span>
+                        <div class="tk-progress-bar">
+                            <div class="tk-progress-fill" id="tkProgressFill" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <button class="tk-back-btn" onclick="Tracker.reset()"><i class="fas fa-redo"></i> Nuova Ricerca</button>
+                </div>
+
+                <div class="tk-error-card" id="tkErrorCard">
+                    <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
+                    <p style="font-weight: 600; margin-bottom: 5px;">Codice non trovato</p>
+                    <p style="font-size: 0.9rem;">Verifica il codice e riprova.</p>
+                    <button class="tk-back-btn" onclick="Tracker.reset()" style="margin-top: 15px; border-color: var(--trk-danger); color: var(--trk-danger);"><i class="fas fa-redo"></i> Riprova</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Servizi -->
+        <section id="servizi" class="services">
+            <div class="section-header">
+                <h2>I Nostri Servizi</h2>
+                <div class="line"></div>
+            </div>
+            <div class="cards-grid">
+                <article class="service-card">
+                    <div class="icon-box"><i class="fas fa-snowflake"></i></div>
+                    <h3>Installazione Climatizzatori</h3>
+                    <p>Montaggio professionale di split e multi-split.</p>
+                </article>
+                <article class="service-card">
+                    <div class="icon-box"><i class="fas fa-fire-flame-simple"></i></div>
+                    <h3>Installazione Caldaie</h3>
+                    <p>Sostituzione e nuova installazione caldaie.</p>
+                </article>
+                <article class="service-card">
+                    <div class="icon-box"><i class="fas fa-plug"></i></div>
+                    <h3>Installazione Elettrodomestici</h3>
+                    <p>Collegamento idrico ed elettrico.</p>
+                </article>
+                <article class="service-card">
+                    <div class="icon-box"><i class="fas fa-box-open"></i></div>
+                    <h3>Consegna Elettrodomestici</h3>
+                    <p>Trasporto sicuro della merce acquistata.</p>
+                </article>
+                <article class="service-card">
+                    <div class="icon-box"><i class="fas fa-stopwatch"></i></div>
+                    <h3>Consegne Rapide</h3>
+                    <p>Servizio espresso entro 3 ore.</p>
+                </article>
+            </div>
+        </section>
+
+        <!-- Contatti -->
+        <section id="contatti" class="contact-section">
+            <div class="section-header" style="color: white;">
+                <h2 style="color: white;">Contattaci Subito</h2>
+                <div class="line" style="background: white;"></div>
+            </div>
+            <div class="contact-grid">
+                <!-- Colonna Info -->
+                <div class="contact-info">
+                    <h3>Informazioni</h3>
+                    <div class="contact-item">
+                        <i class="fas fa-phone-alt"></i>
+                        <div>
+                            <a href="tel:+393898735341">+39 389 873 5341</a><br>
+                            <a href="tel:+393311640977">+39 331 164 0977</a>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <i class="fas fa-envelope"></i>
+                        <a href="mailto:iltlogistics@pec.it">iltlogistics@pec.it</a>
+                    </div>
+                    <div class="contact-item">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <div>
+                            Via Sperone 3, Palermo<br>
+                            Via Sardegna 13, Pieve Emanuele (MI)
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <i class="fas fa-clock"></i>
+                        <span>Lun - Ven: 08:00 - 18:00</span>
+                    </div>
+                    
+                    <!-- PULSANTE WHATSAPP -->
+                    <a href="https://wa.me/393898735341?text=Salve,%20vorrei%20richiedere%20un%20intervento." class="whatsapp-btn" target="_blank">
+                        <i class="fab fa-whatsapp"></i> Contattaci su WhatsApp
+                    </a>
+                </div>
+
+                <!-- Colonna Form -->
+                <form class="contact-form" onsubmit="event.preventDefault(); alert('Messaggio inviato!');">
+                    <input type="text" placeholder="Nome" required>
+                    <input type="tel" placeholder="Telefono" required>
+                    <textarea rows="4" placeholder="Messaggio"></textarea>
+                    <button type="submit">Invia Richiesta</button>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2023 ILT Logistics Srl. Servizi di Installazione e Consegna.</p>
+    </footer>
+
+    <!-- Logica JavaScript -->
+    <script>
+        // --- Gestione UI ---
+        function openTracker() {
+            document.getElementById('tracking-section').style.display = 'block';
+            document.querySelector('.hero').style.display = 'none';
+            window.scrollTo(0, 0);
+        }
+
+        function closeTracker() {
+            document.getElementById('tracking-section').style.display = 'none';
+            document.querySelector('.hero').style.display = 'flex';
+            Tracker.reset();
+        }
+
+        function toggleMobileMenu() {
+            document.getElementById('mainNav').classList.toggle('mobile-open');
+        }
+
+        // --- Configurazione Firebase ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDbKtru1AyoexRXuWybXA_nh7pPmzR1WjI",
+            authDomain: "gipro-c5e47.firebaseapp.com",
+            projectId: "gipro-c5e47",
+            storageBucket: "gipro-c5e47.firebasestorage.app",
+            messagingSenderId: "417519163920",
+            appId: "1:417519163920:web:ad67a8262ede081ad6c895",
+            measurementId: "G-TMP00KTXXV"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+
+        // --- Logica Tracker ---
+        const Tracker = {
+            search: async () => {
+                const input = document.getElementById('trackingId').value.trim();
+                if (!input) return;
+
+                document.getElementById('tkSearchBox').style.display = 'none';
+                document.getElementById('tkErrorCard').style.display = 'none';
+                document.getElementById('tkResultCard').style.display = 'none';
+
+                try {
+                    let snapshot = await db.collection("domicile_tickets")
+                        .where("ticketId", "==", input)
+                        .limit(1)
+                        .get();
+
+                    if (snapshot.empty) {
+                        const docRef = await db.collection("domicile_tickets").doc(input).get();
+                        if (docRef.exists) {
+                            Tracker.showResult(docRef.data());
+                        } else {
+                            Tracker.showError();
+                        }
+                    } else {
+                        snapshot.forEach(doc => Tracker.showResult(doc.data()));
+                    }
+                } catch (error) {
+                    console.error("Errore DB:", error);
+                    Tracker.showError();
+                }
+            },
+
+            showResult: async (ticket) => {
+                document.getElementById('tkInfoId').innerText = `#${ticket.ticketId || ticket.id.substring(0,4)}`;
+                document.getElementById('tkInfoOperator').innerText = ticket.operator || 'N/D';
+                document.getElementById('tkInfoAddress').innerText = ticket.address || 'N/D';
+
+                const iconEl = document.getElementById('tkStatusIcon');
+                const titleEl = document.getElementById('tkStatusTitle');
+                const msgEl = document.getElementById('tkStatusMessage');
+                const etaBox = document.getElementById('tkEtaBox');
+
+                iconEl.className = 'tk-status-icon';
+
+                if (ticket.status === 'completato') {
+                    iconEl.classList.add('completed');
+                    iconEl.innerHTML = '<i class="fas fa-check-circle"></i>';
+                    titleEl.innerText = 'Consegna Completata';
+                    titleEl.style.color = 'var(--trk-success)';
+                    msgEl.innerText = 'La tua consegna è stata effettuata con successo.';
+                    etaBox.style.display = 'none';
+                } else if (ticket.status === 'reclamo') {
+                    iconEl.classList.add('pending');
+                    iconEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>';
+                    titleEl.innerText = 'In Verifica';
+                    titleEl.style.color = 'var(--trk-warning)';
+                    msgEl.innerText = 'Il tuo ticket è stato preso in carico.';
+                    etaBox.style.display = 'none';
+                } else {
+                    iconEl.classList.add('transit');
+                    iconEl.innerHTML = '<i class="fas fa-truck-moving"></i>';
+                    titleEl.innerText = 'In Programmazione';
+                    titleEl.style.color = 'var(--trk-primary)';
+                    
+                    const estimation = await Tracker.calculateETA(ticket);
+                    
+                    msgEl.innerText = estimation.message;
+                    document.getElementById('tkEtaTime').innerText = estimation.etaTime;
+                    document.getElementById('tkProgressFill').style.width = estimation.progress + '%';
+                    document.getElementById('tkEtaLabel').innerText = estimation.label;
+                    etaBox.style.display = 'block';
+                }
+
+                document.getElementById('tkResultCard').style.display = 'block';
+            },
+
+            calculateETA: async (currentTicket) => {
+                const today = new Date().toISOString().split('T')[0];
+                const operator = currentTicket.operator;
+
+                if (currentTicket.date !== today) {
+                    return { 
+                        message: `Consegna programmata per il ${currentTicket.date}`, 
+                        etaTime: '--:--', 
+                        progress: 0,
+                        label: 'Data consegna'
+                    };
+                }
+
+                const snapshot = await db.collection("domicile_tickets")
+                    .where("operator", "==", operator)
+                    .where("date", "==", today)
+                    .get();
+
+                const allTickets = [];
+                snapshot.forEach(doc => allTickets.push(doc.data()));
+
+                if (allTickets.length === 0) {
+                    return { message: "In attesa di aggiornamenti", etaTime: '--:--', progress: 0, label: 'Caricamento...' };
+                }
+
+                allTickets.sort((a, b) => {
+                    if (a.orderNumber && b.orderNumber) return a.orderNumber - b.orderNumber;
+                    return (a.createdAt || "").localeCompare(b.createdAt || "");
+                });
+
+                let myPosition = 0;
+                let totalStops = allTickets.length;
+
+                allTickets.forEach((t, index) => {
+                    if (t.id === currentTicket.id) {
+                        myPosition = index + 1;
+                    }
+                });
+
+                const completedCount = allTickets.filter(t => t.status === 'completato').length;
+                const remainingStops = myPosition - completedCount;
+                const minutesPerStop = 15;
+                const estimatedMinutes = remainingStops > 0 ? remainingStops * minutesPerStop : 0;
+                
+                let progress = 0;
+                if (myPosition > 0) {
+                    progress = Math.min(100, Math.max(0, (completedCount / myPosition) * 100));
+                }
+
+                let message = "";
+                let label = "Orario stimato arrivo";
+
+                if (remainingStops <= 0) {
+                    message = "È il tuo turno! Il corriere dovrebbe arrivare a momenti.";
+                    label = "Imminente";
+                } else if (remainingStops === 1) {
+                    message = "Sei il prossimo! Il corriere è alla consegna precedente.";
+                    label = "Arrivo tra circa 15 min";
+                } else {
+                    message = `Sei la ${myPosition}ª tappa su ${totalStops}. Mancano ${remainingStops} consegne.`;
+                    label = `Arrivo stimato tra ${estimatedMinutes} min`;
+                }
+
+                const now = new Date();
+                const eta = new Date(now.getTime() + estimatedMinutes * 60000);
+                const etaFormatted = eta.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
+                return {
+                    message: message,
+                    etaTime: remainingStops <= 0 ? now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : etaFormatted,
+                    progress: progress,
+                    label: label
+                };
+            },
+
+            showError: () => {
+                document.getElementById('tkSearchBox').style.display = 'none';
+                document.getElementById('tkErrorCard').style.display = 'block';
+            },
+
+            reset: () => {
+                document.getElementById('trackingId').value = '';
+                document.getElementById('tkSearchBox').style.display = 'block';
+                document.getElementById('tkResultCard').style.display = 'none';
+                document.getElementById('tkErrorCard').style.display = 'none';
+            }
+        };
+
+        document.getElementById("trackingId").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") Tracker.search();
+        });
+    </script>
+</body>
+</html>
