@@ -1607,6 +1607,9 @@
             </div>
             <div class="card">
                 <h3 style="margin:0 0 20px; font-size: 1.2rem; color: var(--text-secondary);">Messaggi Ricevuti</h3>
+                <div id="messagesContainer" style="max-height: 400px; overflow-y: auto; padding: 10px 0;">
+                    <!-- I messaggi verranno caricati qui dinamicamente -->
+                </div>
             </div>
         </div>
     </div>
@@ -2294,6 +2297,10 @@
                 db.collection("logs").orderBy("time", "desc").limit(200).onSnapshot(snapshot => { Store.localLogs = snapshot.docs.map(doc => doc.data()); if (Auth.currentUser?.role === 'admin') Admin.renderLogs(); }, err => console.error(err));
                 db.collection("material_history").orderBy("time", "desc").limit(500).onSnapshot(snapshot => { Store.localMaterialHistory = snapshot.docs.map(doc => doc.data()); }, err => console.error(err));
                 db.collection("messages").orderBy("timestamp", "desc").limit(50).onSnapshot(snapshot => { Store.localMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); if (Utils.id('view-communication').classList.contains('active')) CommunicationManager.render(); CommunicationManager.updateNotificationBadge(); }, err => console.error(err));
+                db.collection("users").onSnapshot(snapshot => { 
+                    Store.localUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
+                    console.log('DEBUG: Utenti caricati da Firebase:', Store.localUsers.length, Store.localUsers); 
+                }, err => console.error('DEBUG: Errore caricamento utenti:', err));
                 db.collection("domicile_tickets").orderBy("date", "desc").onSnapshot(snapshot => { 
                     console.log('[STORE] onSnapshot domicile_tickets - changes:', snapshot.docChanges().length, 'docs:', snapshot.docs.length);
                     Store.localDomicileTickets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
@@ -2330,7 +2337,19 @@
             goToHistory: () => { HistoryManager.render(); UI.showView('view-history'); },
             goToAdmin: () => { Admin.renderUsers(); Admin.renderLogs(); UI.showView('view-admin'); },
             goToWarehouse: () => { Warehouse.render(); UI.showView('view-warehouse'); },
-            goToCommunication: () => { CommunicationManager.render(); UI.showView('view-communication'); },
+            goToCommunication: () => { 
+                // Forza ricaricamento utenti sempre per debug
+                db.collection("users").get().then(snapshot => {
+                    Store.localUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    console.log('DEBUG: Utenti ricaricati manualmente:', Store.localUsers.length, Store.localUsers);
+                    CommunicationManager.render(); 
+                    UI.showView('view-communication');
+                }).catch(err => {
+                    console.error('DEBUG: Errore ricaricamento utenti:', err);
+                    CommunicationManager.render(); 
+                    UI.showView('view-communication');
+                });
+            },
             goToDomicile: () => { DomicileManager.init(); DomicileManager.render(); UI.showView('view-domicile'); },
             goToTimbratura: () => { 
                 UI.showView('view-timbrature'); 
@@ -3793,7 +3812,7 @@ www.iltlogistics.it`;
         const CommunicationManager = {
             currentAttachment: null,
             updateNotificationBadge: () => { const badge = Utils.id('commBadge'); if (!badge || !Auth.currentUser) return; const currentUser = Auth.currentUser; const messages = Store.getMessages(); const unreadCount = messages.filter(msg => { const isAddressedToMe = (msg.recipient === 'all') || (msg.recipient === currentUser.username) || (currentUser.role === 'admin' && msg.recipient === 'admin'); const isRead = msg.read === true; if (msg.author === currentUser.username) return false; return isAddressedToMe && !isRead; }).length; if (unreadCount > 0) { badge.innerText = unreadCount; badge.classList.remove('hidden'); } else { badge.classList.add('hidden'); } },
-            render: () => { const container = Utils.id('messagesContainer'); const recipientSelect = Utils.id('msgRecipient'); if (!container || !recipientSelect) return; const currentUser = Auth.currentUser; const currentVal = recipientSelect.value; recipientSelect.innerHTML = '<option value="all">📢 A Tutti (Bacheca Generale)</option>'; if (currentUser.role === 'admin') { Store.getUsers().forEach(u => { if (u.username !== currentUser.username) { recipientSelect.innerHTML += `<option value="${u.username}">👤 A ${u.username}</option>`; } }); } else { recipientSelect.innerHTML += '<option value="admin">👔 All\'Amministratore</option>'; } recipientSelect.value = currentVal || 'all'; const allMessages = Store.getMessages(); const visibleMessages = allMessages.filter(msg => { const isAdmin = currentUser.role === 'admin'; const isSender = msg.author === currentUser.username; const isBroadcast = msg.recipient === 'all'; if (isSender) return true; if (isBroadcast) return true; if (msg.recipient === currentUser.username) return true; if (isAdmin && msg.recipient === 'admin') return true; return false; }); if (visibleMessages.length === 0) { container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-secondary);">Nessun messaggio presente.</div>'; return; } container.innerHTML = visibleMessages.map(m => { let recipientLabel = m.recipient !== 'all' ? `<span class="message-to">(Privato per: ${m.recipient})</span>` : ''; const isRead = m.read === true; if (!isRead && m.author !== currentUser.username) Store.markMessageRead(m.id); let attachmentHtml = ''; if(m.attachment) { attachmentHtml = `<img src="${m.attachment}" class="message-attachment-img" alt="Allegato">`; } return `<div class="message-bubble ${isRead ? '' : 'unread'}"><div class="message-meta"><div><span class="message-author">${m.author}</span>${recipientLabel}</div><span>${m.time}</span></div><div class="message-content">${m.content.replace(/\n/g, '<br>')}</div>${attachmentHtml}${Auth.currentUser.role === 'admin' || Auth.currentUser.username === m.author ? `<div class="text-right" style="margin-top:10px;"><button class="btn btn-sm btn-danger" onclick="CommunicationManager.delete('${m.id}')">Elimina</button></div>` : ''}</div>`; }).join(''); },
+            render: () => { const container = Utils.id('messagesContainer'); const recipientSelect = Utils.id('msgRecipient'); if (!container || !recipientSelect) return; const currentUser = Auth.currentUser; const currentVal = recipientSelect.value; recipientSelect.innerHTML = '<option value="all">📢 A Tutti (Bacheca Generale)</option>'; if (currentUser.role === 'admin') { const users = Store.getUsers(); console.log('DEBUG: Utenti caricati:', users); users.forEach(u => { if (u.username !== currentUser.username) { recipientSelect.innerHTML += `<option value="${u.username}">👤 A ${u.username}</option>`; } }); } else { recipientSelect.innerHTML += '<option value="admin">👔 All\'Amministratore</option>'; } recipientSelect.value = currentVal || 'all'; const allMessages = Store.getMessages(); const visibleMessages = allMessages.filter(msg => { const isAdmin = currentUser.role === 'admin'; const isSender = msg.author === currentUser.username; const isBroadcast = msg.recipient === 'all'; if (isSender) return true; if (isBroadcast) return true; if (msg.recipient === currentUser.username) return true; if (isAdmin && msg.recipient === 'admin') return true; return false; }); if (visibleMessages.length === 0) { container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-secondary);">Nessun messaggio presente.</div>'; return; } container.innerHTML = visibleMessages.map(m => { let recipientLabel = m.recipient !== 'all' ? `<span class="message-to">(Privato per: ${m.recipient})</span>` : ''; const isRead = m.read === true; if (!isRead && m.author !== currentUser.username) Store.markMessageRead(m.id); let attachmentHtml = ''; if(m.attachment) { attachmentHtml = `<img src="${m.attachment}" class="message-attachment-img" alt="Allegato">`; } return `<div class="message-bubble ${isRead ? '' : 'unread'}"><div class="message-meta"><div><span class="message-author">${m.author}</span>${recipientLabel}</div><span>${m.time}</span></div><div class="message-content">${m.content.replace(/\n/g, '<br>')}</div>${attachmentHtml}${Auth.currentUser.role === 'admin' || Auth.currentUser.username === m.author ? `<div class="text-right" style="margin-top:10px;"><button class="btn btn-sm btn-danger" onclick="CommunicationManager.delete('${m.id}')">Elimina</button></div>` : ''}</div>`; }).join(''); },
             sendMessage: () => { const content = Utils.id('newMessageContent').value.trim(); const recipient = Utils.id('msgRecipient').value; if (!content) { UI.showToast('Scrivi un messaggio', 'error'); return; } const msg = { content: content, author: Auth.currentUser.username, recipient: recipient, time: new Date().toLocaleString('it-IT'), timestamp: firebase.firestore.FieldValue.serverTimestamp(), read: false }; if (CommunicationManager.currentAttachment) { msg.attachment = CommunicationManager.currentAttachment; } Store.saveMessage(msg); Store.addLog(`Messaggio inviato da ${Auth.currentUser.username} a ${recipient}`); Utils.id('newMessageContent').value = ''; CommunicationManager.clearAttachment(); UI.showToast('Messaggio inviato', 'success'); },
             previewAttachment: (event) => {
                 const file = event.target.files[0];
