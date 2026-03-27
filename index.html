@@ -761,7 +761,7 @@
 
                 <div class="tk-search-box" id="tkSearchBox">
                     <p style="margin-bottom: 20px; color: var(--trk-text-secondary);">Inserisci il codice della tua consegna</p>
-                    <input type="text" id="trackingId" class="tk-input" placeholder="Es: 0001" maxlength="10" autocomplete="off">
+                    <input type="text" id="trackingId" class="tk-input" placeholder="Es: 0001 o TRK-ABC123" maxlength="20" autocomplete="off">
                     <button class="tk-btn" onclick="Tracker.search()"><i class="fas fa-search"></i> Cerca Consegna</button>
                 </div>
 
@@ -1007,6 +1007,13 @@
             Tracker.reset();
         }
 
+        function openTracker() {
+            document.getElementById('tracking-section').style.display = 'block';
+            document.querySelector('.hero').style.display = 'none';
+            // Resetta il tracker per una nuova ricerca
+            Tracker.reset();
+        }
+
         function toggleMobileMenu() {
             document.getElementById('mainNav').classList.toggle('mobile-open');
         }
@@ -1038,12 +1045,25 @@
                 document.getElementById('tkResultCard').style.display = 'none';
 
                 try {
+                    // 1. Cerca per Tracking ID (es. "TRK-XXXXX")
                     let snapshot = await db.collection("domicile_tickets")
+                        .where("trackingId", "==", input)
+                        .limit(1)
+                        .get();
+                        
+                    if (!snapshot.empty) {
+                        snapshot.forEach(doc => Tracker.showResult(doc.data()));
+                        return;
+                    }
+                    
+                    // 2. Cerca per Ticket ID (es. "0001")
+                    snapshot = await db.collection("domicile_tickets")
                         .where("ticketId", "==", input)
                         .limit(1)
                         .get();
 
                     if (snapshot.empty) {
+                        // 3. Se non trova, cerca per ID Documento
                         const docRef = await db.collection("domicile_tickets").doc(input).get();
                         if (docRef.exists) {
                             Tracker.showResult(docRef.data());
