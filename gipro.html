@@ -3295,7 +3295,17 @@
             },
 
             executeIntervention: (id) => {
-                const item = Store.getById(id);
+                let item = Store.getById(id);
+                
+                // Se non trovato nelle commesse standard, cerca nei ticket shop
+                if (!item) {
+                    const shopTickets = JSON.parse(localStorage.getItem('shopTickets') || '[]');
+                    item = shopTickets.find(t => t.id === id);
+                    if (item) {
+                        item.isFromShop = true;
+                    }
+                }
+                
                 if(!item) return;
                 
                 // Tipi speciali che richiedono scelta categoria
@@ -7918,26 +7928,26 @@ Vuoi generare il resoconto giornaliero completo?`,
             // Apri il form con la categoria selezionata
             App.goToForm(category);
             
-            // Precompila i dati cliente dal ticket
-            Utils.id('client_name').value = ticket.client?.nome || '';
-            Utils.id('client_phone').value = ticket.client?.telefono || '';
-            Utils.id('client_phone2').value = ticket.client?.telefono2 || '';
-            Utils.id('client_email').value = ticket.client?.email || '';
-            Utils.id('client_city').value = ticket.client?.citta || '';
-            Utils.id('client_address').value = ticket.client?.indirizzo || '';
+            // Precompila i dati cliente dal ticket (usa i corretti ID del form)
+            if (Utils.id('c_nome')) Utils.id('c_nome').value = ticket.client?.nome || '';
+            if (Utils.id('c_tel')) Utils.id('c_tel').value = ticket.client?.telefono || '';
+            if (Utils.id('c_email')) Utils.id('c_email').value = ticket.client?.email || '';
+            if (Utils.id('c_indirizzo')) Utils.id('c_indirizzo').value = ticket.client?.indirizzo || '';
             
-            // Precompila data e ora se presenti
-            if (ticket.dataIntervento) {
-                Utils.id('client_date').value = ticket.dataIntervento;
+            // Precompila data intervento se presente
+            if (ticket.dataIntervento && Utils.id('c_intervention_date')) {
+                Utils.id('c_intervention_date').value = ticket.dataIntervento;
             }
-            if (ticket.oraIntervento) {
-                Utils.id('client_time').value = ticket.oraIntervento;
+            if (ticket.oraIntervento && Utils.id('c_intervention_time')) {
+                Utils.id('c_intervention_time').value = ticket.oraIntervento;
             }
             
-            // Aggiungi note sul tipo intervento
+            // Aggiungi note sul tipo intervento nel campo note generali
             const tipoIntervento = ticket.intervention?.tipo || '';
             const descrizione = ticket.intervention?.descrizione || '';
-            Utils.id('problem_description').value = `Tipo: ${tipoIntervento}\n${descrizione}`;
+            if (Utils.id('i_note')) {
+                Utils.id('i_note').value = `Tipo: ${tipoIntervento}\n${descrizione}`;
+            }
             
             // Cambia stato del ticket in 'in corso'
             if (ticket.status === 'assegnato') {
