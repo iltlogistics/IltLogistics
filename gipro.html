@@ -11,6 +11,7 @@
     
     <!-- FIREBASE SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     
     <!-- Font Awesome -->
@@ -2883,11 +2884,37 @@
         let db = null;
         let firebaseReady = false;
         let isTrackingMode = false;
+        let firebaseAuthReady = false; // Traccia se l'auth Firebase è completa
         
         try {
             firebase.initializeApp(firebaseConfig);
             db = firebase.firestore();
             firebaseReady = true;
+            
+            // Verifica se siamo in protocollo file:// (non supportato da Firebase Auth)
+            const isFileProtocol = window.location.protocol === 'file:';
+            
+            if (isFileProtocol) {
+                console.log('⚠️ Protocollo file:// rilevato - Firebase Auth disabilitato');
+                firebaseAuthReady = false; // Non usare Firebase Auth da file://
+                // Emetti evento subito per permettere query Firestore (se le regole lo permettono)
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('firebaseAuthReady', { detail: null }));
+                }, 500);
+            } else {
+                // Gestione autenticazione Firebase - aspetta che l'auth sia pronta
+                firebase.auth().onAuthStateChanged((user) => {
+                    if (user) {
+                        console.log('✅ Utente autenticato Firebase:', user.uid);
+                        firebaseAuthReady = true;
+                        // Emetti evento per notificare che l'auth è pronta
+                        window.dispatchEvent(new CustomEvent('firebaseAuthReady', { detail: user }));
+                    } else {
+                        console.log('❌ Utente Firebase non autenticato');
+                        firebaseAuthReady = false;
+                    }
+                });
+            }
         } catch (error) { console.error("Firebase initialization error:", error); }
 
         // ========== UTILITIES ==========
@@ -2925,11 +2952,30 @@
                     setTimeout(() => { Auth.checkLocalSession(); }, 1000);
                     return;
                 }
-                Utils.id('intro-status').innerText = "Sincronizzazione dati...";
-                db.collection("users").onSnapshot(snapshot => {
-                    Store.localUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    if (!Auth.initComplete) { Auth.checkLocalSession(); }
-                }, (err) => { console.error(err); Auth.checkLocalSession(); });
+                Utils.id('intro-status').innerText = "Autenticazione in corso...";
+                
+                // Aspetta che l'autenticazione Firebase sia pronta prima di fare query
+                const setupQueries = () => {
+                    console.log('🔧 Setup query Firestore...');
+                    db.collection("users").onSnapshot(snapshot => {
+                        Store.localUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        if (!Auth.initComplete) { Auth.checkLocalSession(); }
+                    }, (err) => { console.error(err); Auth.checkLocalSession(); });
+                };
+                
+                if (firebaseAuthReady) {
+                    // Auth già pronta, fai subito le query
+                    setupQueries();
+                } else {
+                    // Aspetta l'evento di auth pronta
+                    window.addEventListener('firebaseAuthReady', () => {
+                        setupQueries();
+                    }, { once: true });
+                    // Fallback: controlla sessione locale dopo un timeout
+                    setTimeout(() => {
+                        if (!Auth.initComplete) { Auth.checkLocalSession(); }
+                    }, 3000);
+                }
             },
             checkLocalSession: () => {
                 if (Auth.initComplete) return;
@@ -2955,9 +3001,22 @@
                 setTimeout(() => {
                     Auth.initComplete = true;
                     if (Auth.currentUser) {
-                        // Utente già loggato, vai direttamente alla dashboard
-                        Auth.startSession();
-                        Utils.id('intro-screen').classList.add('hidden');
+                        // Utente già loggato, autentica con Firebase e vai alla dashboard (solo se non file://)
+                        if (firebase.auth && window.location.protocol !== 'file:' && false) { // DISABLED: auth anonimo disabilitato
+                            firebase.auth().signInAnonymously().then(() => {
+                                console.log('✅ Sessione esistente - autenticato con Firebase');
+                                Auth.startSession();
+                                Utils.id('intro-screen').classList.add('hidden');
+                            }).catch(err => {
+                                console.error('❌ Errore auth Firebase sessione:', err);
+                                Auth.startSession();
+                                Utils.id('intro-screen').classList.add('hidden');
+                            });
+                        } else {
+                            // Protocollo file:// o Firebase non disponibile, procedi senza auth
+                            Auth.startSession();
+                            Utils.id('intro-screen').classList.add('hidden');
+                        }
                     } else {
                         // Nessuna sessione, mostra la schermata di login
                         Utils.id('intro-screen').classList.add('hidden');
@@ -2967,11 +3026,91 @@
             },
             login: () => {
                 const u = Utils.id('login_user').value.trim(); const p = Utils.id('login_pass').value;
-                if (u.toLowerCase() === 'admin' && p === 'Palermo4ever') { Auth.currentUser = { id: 'master_admin', username: 'Admin', role: 'admin' }; localStorage.setItem('session_gipro', JSON.stringify(Auth.currentUser)); Utils.id('login-error').style.display = 'none'; Utils.id('login-screen').classList.remove('active'); Store.addLog(`Login Master Admin effettuato`); Auth.startSession(); return; }
+                
+                const doLogin = (user) => {
+                    Auth.currentUser = user;
+                    localStorage.setItem('session_gipro', JSON.stringify(user));
+                    Utils.id('login-error').style.display = 'none';
+                    Utils.id('login-screen').classList.remove('active');
+                    Store.addLog(`Login effettuato da ${user.username}`);
+                    Auth.startSession();
+                };
+                
+                // Admin master
+                if (u.toLowerCase() === 'admin' && p === 'Palermo4ever') {
+                    const adminUser = { id: 'master_admin', username: 'Admin', role: 'admin' };
+                    // Timeout di sicurezza per Firebase auth
+                    let loginDone = false;
+                    const safeDoLogin = () => {
+                        if (!loginDone) {
+                            loginDone = true;
+                            doLogin(adminUser);
+                        }
+                    };
+                    
+                    // Autentica con Firebase Auth anonimamente o con email
+                    if (firebase.auth && window.location.protocol !== 'file:' && false) { // DISABLED: auth anonimo disabilitato
+                        firebase.auth().signInAnonymously().then(() => {
+                            console.log('✅ Admin autenticato con Firebase');
+                            safeDoLogin();
+                        }).catch(err => {
+                            console.error('❌ Errore auth Firebase:', err);
+                            safeDoLogin(); // Continua comunque
+                        });
+                        // Timeout di sicurezza: procedi dopo 2 secondi max
+                        setTimeout(safeDoLogin, 2000);
+                    } else {
+                        safeDoLogin();
+                    }
+                    return;
+                }
+                
+                // Utente normale
                 const user = Store.localUsers.find(x => x.username.toLowerCase() === u.toLowerCase() && x.password === p);
-                if (user) { Auth.currentUser = user; localStorage.setItem('session_gipro', JSON.stringify(user)); Utils.id('login-error').style.display = 'none'; Utils.id('login-screen').classList.remove('active'); Store.addLog(`Login effettuato da ${user.username}`); Auth.startSession(); } else { Utils.id('login-error').style.display = 'block'; Utils.id('login_pass').value = ''; }
+                if (user) {
+                    let loginDone = false;
+                    const safeDoLogin = () => {
+                        if (!loginDone) {
+                            loginDone = true;
+                            doLogin(user);
+                        }
+                    };
+                    
+                    if (firebase.auth && window.location.protocol !== 'file:' && false) { // DISABLED: auth anonimo disabilitato
+                        firebase.auth().signInAnonymously().then(() => {
+                            console.log('✅ Utente autenticato con Firebase');
+                            safeDoLogin();
+                        }).catch(err => {
+                            console.error('❌ Errore auth Firebase:', err);
+                            safeDoLogin(); // Continua comunque
+                        });
+                        // Timeout di sicurezza: procedi dopo 2 secondi max
+                        setTimeout(safeDoLogin, 2000);
+                    } else {
+                        safeDoLogin();
+                    }
+                } else {
+                    Utils.id('login-error').style.display = 'block';
+                    Utils.id('login_pass').value = '';
+                }
             },
-            logout: () => { if (Auth.currentUser) { Store.addLog(`Logout utente ${Auth.currentUser.username}`); } Auth.currentUser = null; localStorage.removeItem('session_gipro'); location.reload(); },
+            logout: () => { 
+                if (Auth.currentUser) { Store.addLog(`Logout utente ${Auth.currentUser.username}`); } 
+                Auth.currentUser = null; 
+                localStorage.removeItem('session_gipro'); 
+                // Logout da Firebase Auth
+                if (firebase.auth) {
+                    firebase.auth().signOut().then(() => {
+                        console.log('✅ Logout Firebase completato');
+                        location.reload();
+                    }).catch(err => {
+                        console.error('❌ Errore logout Firebase:', err);
+                        location.reload();
+                    });
+                } else {
+                    location.reload();
+                }
+            },
             startSession: () => {
                 Utils.id('userBadge').classList.add('visible'); 
                 Utils.id('loggedUser').innerText = Auth.currentUser.username; 
@@ -3014,10 +3153,14 @@
 
         // ========== DATA STORE ==========
         const Store = {
-            localInterventions: [], localUsers: [], localLogs: [], localWarehouse: [], localMaterialHistory: [], localMessages: [], localDomicileTickets: [], localRAEEForms: [],
+            localInterventions: [], localUsers: [], localLogs: [], localWarehouse: [], localMaterialHistory: [], localMessages: [], localDomicileTickets: [], localRAEEForms: [], localShopTickets: [],
             setup: () => {
                 if (!firebaseReady || !db) return;
-                db.collection("interventions").orderBy("client.dataIntervento", "desc").onSnapshot(snapshot => { 
+                
+                // Aspetta che l'autenticazione Firebase sia pronta prima di fare query
+                const doSetup = () => {
+                    console.log('🔧 Store.setup() - auth pronta, inizio query Firestore');
+                    db.collection("interventions").orderBy("client.dataIntervento", "desc").onSnapshot(snapshot => { 
     Store.localInterventions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
     
     // Controllo automatico: cambia stato da 'assegnato' a 'in corso' se la data è odierna
@@ -3059,6 +3202,26 @@
                         DomicileManager.render();
                     }
                 }, err => console.error('[STORE] Errore onSnapshot domicile_tickets:', err));
+                
+                // Aggiungi onSnapshot per shopTickets
+                db.collection("shopTickets").orderBy("createdAt", "desc").onSnapshot(snapshot => {
+                    console.log('[STORE] onSnapshot shopTickets - docs:', snapshot.docs.length);
+                    Store.localShopTickets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    // Sincronizza con localStorage per accesso offline
+                    localStorage.setItem('shopTickets', JSON.stringify(Store.localShopTickets));
+                }, err => console.error('[STORE] Errore onSnapshot shopTickets:', err));
+                };
+                
+                if (firebaseAuthReady) {
+                    // Auth già pronta, fai subito le query
+                    doSetup();
+                } else {
+                    // Aspetta l'evento di auth pronta
+                    window.addEventListener('firebaseAuthReady', () => {
+                        doSetup();
+                    }, { once: true });
+                    console.log('⏳ Store.setup() - in attesa di autenticazione Firebase...');
+                }
             },
             getUsers: () => Store.localUsers,
             addLog: (msg) => { if (!db) return; const entry = { time: new Date().toLocaleString('it-IT'), msg }; db.collection("logs").add(entry).catch(err => console.error(err)); },
@@ -3100,7 +3263,8 @@
             },
             deleteMessage: (id) => { if (!db) return; db.collection("messages").doc(id).delete().catch(err => console.error(err)); },
             markMessageRead: (id) => { if (!db) return; db.collection("messages").doc(id).update({ read: true }).catch(err => console.error(err)); },
-            getDomicileTickets: () => Store.localDomicileTickets
+            getDomicileTickets: () => Store.localDomicileTickets,
+            getShopTickets: () => Store.localShopTickets
         };
 
         // ========== APP CONTROLLER ==========
@@ -5112,6 +5276,12 @@ Vuoi generare il resoconto giornaliero completo?`,
                         if (status === 'completato') {
                             DomicilePDF.generate(ticket);
                             DomicileManager.sendCompletionSMS(ticket);
+                            
+                            // Apri modale RAEE per registrare eventuale ritiro
+                            const clientInfo = `${ticket.clientName} - ${ticket.address} (${ticket.type})`;
+                            setTimeout(() => {
+                                openRaeeModal(ticket.id, ticket.type, clientInfo);
+                            }, 300);
                         }
                         
                         // Passa al prossimo ticket se esiste
@@ -7391,19 +7561,11 @@ Vuoi generare il resoconto giornaliero completo?`,
             // Combina interventi normali e ticket shop
             let interventions = [...Store.getAll()];
             
-            // Carica ticket shop da Firestore o localStorage
-            let shopTickets = [];
-            if (db) {
-                try {
-                    const snapshot = await db.collection("shopTickets").get();
-                    shopTickets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    // Sincronizza con localStorage
-                    localStorage.setItem('shopTickets', JSON.stringify(shopTickets));
-                } catch (err) {
-                    console.error('Errore caricamento ticket shop:', err);
-                    shopTickets = JSON.parse(localStorage.getItem('shopTickets') || '[]');
-                }
-            } else {
+            // Usa shopTickets dallo Store (già sincronizzati via onSnapshot)
+            let shopTickets = Store.getShopTickets();
+            
+            // Fallback a localStorage se lo Store è vuoto
+            if (shopTickets.length === 0) {
                 shopTickets = JSON.parse(localStorage.getItem('shopTickets') || '[]');
             }
             
@@ -8245,6 +8407,9 @@ Vuoi generare il resoconto giornaliero completo?`,
             const description = (data.description || data.product || '').toLowerCase();
             const clientNotes = (data.notes || '').toLowerCase();
             const interventionType = (data.type || '').toLowerCase();
+            const category = (data.category || '').toLowerCase();
+            const interventionTipo = (data.intervention?.tipo || '').toLowerCase();
+            const interventionCategoria = (data.intervention?.categoria || data.intervention?.category || '').toLowerCase();
             
             const hasRAEE = raeeKeywords.some(keyword => 
                 description.includes(keyword) || 
@@ -8252,34 +8417,45 @@ Vuoi generare il resoconto giornaliero completo?`,
                 interventionType.includes(keyword)
             );
             
-            if (!hasRAEE) return null;
+            // RAEE automatico per categoria refrigerazione
+            const isRefrigeration = category.includes('refrigerazione') || 
+                                   category.includes('condizionatore') ||
+                                   category.includes('clima') ||
+                                   interventionCategoria.includes('refrigerazione') ||
+                                   interventionCategoria.includes('condizionatore') ||
+                                   interventionTipo.includes('climatizzatore') ||
+                                   interventionTipo.includes('condizionatore') ||
+                                   interventionTipo.includes('frigorifero');
+            
+            if (!hasRAEE && !isRefrigeration) return null;
             
             // Determina categoria RAEE in base al tipo
-            let category = 'R6'; // Default piccoli elettrodomestici
+            let raeeCategory = 'R6'; // Default piccoli elettrodomestici
             let weight = 5; // Default peso kg
             
             if (description.includes('frigorifero') || description.includes('congelatore') || 
-                description.includes('climatizzatore') || description.includes('condizionatore')) {
-                category = 'R1';
+                description.includes('climatizzatore') || description.includes('condizionatore') ||
+                isRefrigeration) {
+                raeeCategory = 'R1';
                 weight = 50;
             } else if (description.includes('lavatrice') || description.includes('lavastoviglie') || 
                       description.includes('forno') || description.includes('microonde')) {
-                category = 'R2';
+                raeeCategory = 'R2';
                 weight = 30;
             } else if (description.includes('tv') || description.includes('televisione') || 
                       description.includes('monitor')) {
-                category = 'R3';
+                raeeCategory = 'R3';
                 weight = 15;
             } else if (description.includes('computer') || description.includes('pc') || 
                       description.includes('laptop') || description.includes('stampante')) {
-                category = 'R4';
+                raeeCategory = 'R4';
                 weight = 10;
             } else if (description.includes('lampada') || description.includes('led')) {
-                category = 'R5';
+                raeeCategory = 'R5';
                 weight = 2;
             }
             
-            return { category, weight, detected: true };
+            return { category: raeeCategory, weight, detected: true };
         },
         
         generateFromIntervention: (interventionData) => {
@@ -8698,5 +8874,361 @@ Per procedere è richiesta la firma digitale. Vuoi continuare?`,
         }
     };
 </script>
+
+<!-- ==================== RAEE MODAL ==================== -->
+<!-- Modale Gestione RAEE - Appare alla chiusura di ogni intervento -->
+<div id="raeeModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 650px; max-height: 90vh; overflow-y: auto;">
+        <div style="display: flex; align-items: center; justify-content: between; margin-bottom: 20px; border-bottom: 2px solid var(--border-color); padding-bottom: 15px;">
+            <div style="flex: 1;">
+                <h3 style="font-size: 1.4rem; font-weight: 700; color: var(--success); margin: 0;">
+                    <i class="fas fa-recycle" style="margin-right: 10px;"></i>Gestione RAEE
+                </h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 5px 0 0 0;">Rifiuti di Apparecchiature Elettriche ed Elettroniche</p>
+            </div>
+            <button onclick="skipRaeeModal()" style="background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; padding: 5px;" title="Salta RAEE">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <form id="raeeForm" onsubmit="saveRaee(event)">
+            <input type="hidden" id="raeeTicketId">
+            <input type="hidden" id="raeeInterventionType">
+            
+            <!-- Info Intervento -->
+            <div style="background: var(--bg-body); padding: 15px; border-radius: var(--radius-sm); margin-bottom: 20px;">
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">
+                    <strong style="color: var(--text-primary);">Intervento:</strong> <span id="raeeInterventionInfo">-</span>
+                </p>
+            </div>
+
+            <!-- Tipologia RAEE -->
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; font-size: 0.9rem; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
+                    Tipologia RAEE * <span style="font-weight: 400; color: var(--text-secondary);">(seleziona quelli ritirati)</span>
+                </label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="grandi" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--success);">
+                        <span style="font-size: 0.9rem;">R1 - Frigoriferi/Freezer</span>
+                    </label>
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="clima" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--success);">
+                        <span style="font-size: 0.9rem;">R2 - Climatizzatori/PdC</span>
+                    </label>
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="lavatrici" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--success);">
+                        <span style="font-size: 0.9rem;">R3 - Lavatrici/Lavastoviglie</span>
+                    </label>
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="televisori" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--success);">
+                        <span style="font-size: 0.9rem;">R4 - TV e Monitor</span>
+                    </label>
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="informatica" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--success);">
+                        <span style="font-size: 0.9rem;">R5 - PC e Informatica</span>
+                    </label>
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="piccoli" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--success);">
+                        <span style="font-size: 0.9rem;">R6 - Piccoli Elettrodomestici</span>
+                    </label>
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="lampade" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--success);">
+                        <span style="font-size: 0.9rem;">R7 - Lampade</span>
+                    </label>
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="fotovoltaico" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--success);">
+                        <span style="font-size: 0.9rem;">R8 - Pannelli Fotovoltaici</span>
+                    </label>
+                    <label style="display: flex; align-items: center; padding: 12px; background: var(--bg-body); border: 2px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; grid-column: span 2;" class="raee-checkbox">
+                        <input type="checkbox" name="raeeType" value="nessuno" id="raeeNessuno" style="margin-right: 10px; width: 18px; height: 18px; accent-color: var(--secondary);" onchange="toggleNessunoRaee()">
+                        <span style="font-size: 0.9rem; color: var(--text-secondary);"><i class="fas fa-ban" style="margin-right: 5px;"></i>Nessun RAEE da ritirare</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Quantità e Peso -->
+            <div id="raeeDetailsSection" style="margin-bottom: 15px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-primary);">Quantità pezzi *</label>
+                        <input type="number" id="raeeQty" min="1" value="1" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-body); color: var(--text-primary); font-size: 1rem;">
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-primary);">Peso stimato (kg) *</label>
+                        <input type="number" id="raeeWeight" step="0.1" min="0" required placeholder="0.0" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-body); color: var(--text-primary); font-size: 1rem;">
+                    </div>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-primary);">Marca/Modello (opzionale)</label>
+                    <input type="text" id="raeeBrand" placeholder="Es: Samsung RTX5000..." style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-body); color: var(--text-primary); font-size: 1rem;">
+                </div>
+            </div>
+
+            <!-- Foto RAEE -->
+            <div id="raeePhotoSection" style="margin-bottom: 20px;">
+                <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Foto RAEE (opzionale)</label>
+                <div style="border: 2px dashed var(--border-color); border-radius: var(--radius-sm); padding: 20px; text-align: center; cursor: pointer; background: var(--bg-body); transition: border-color 0.3s;" onclick="document.getElementById('raeePhotoInput').click()" id="raeeDropZone">
+                    <div id="raeePhotoPreview" style="display: none;">
+                        <img id="raeePhotoImg" src="" alt="RAEE" style="max-width: 100%; max-height: 200px; border-radius: var(--radius-sm); margin-bottom: 10px;">
+                        <br>
+                        <button type="button" onclick="event.stopPropagation(); removeRaeePhoto();" style="background: var(--danger); color: white; border: none; padding: 8px 16px; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.85rem;">
+                            <i class="fas fa-trash"></i> Rimuovi
+                        </button>
+                    </div>
+                    <div id="raeePhotoPlaceholder">
+                        <i class="fas fa-camera" style="font-size: 2.5rem; color: var(--text-secondary); margin-bottom: 10px;"></i>
+                        <p style="margin: 0; color: var(--text-secondary); font-size: 0.9rem;">Clicca per caricare o trascina una foto</p>
+                    </div>
+                </div>
+                <input type="file" id="raeePhotoInput" accept="image/*" style="display: none;" onchange="handleRaeePhotoUpload(event)">
+            </div>
+
+            <!-- Note -->
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-primary);">Note</label>
+                <textarea id="raeeNotes" rows="2" placeholder="Informazioni aggiuntive..." style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-body); color: var(--text-primary); font-size: 1rem; resize: vertical; font-family: inherit;"></textarea>
+            </div>
+
+            <!-- Bottoni -->
+            <div style="display: flex; gap: 12px;">
+                <button type="button" onclick="skipRaeeModal()" style="flex: 1; padding: 14px; background: transparent; border: 2px solid var(--border-color); color: var(--text-secondary); border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; transition: all 0.3s;">
+                    <i class="fas fa-forward" style="margin-right: 8px;"></i>Salta
+                </button>
+                <button type="submit" style="flex: 2; padding: 14px; background: linear-gradient(135deg, var(--success), #059669); border: none; color: white; border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
+                    <i class="fas fa-save" style="margin-right: 8px;"></i>Registra RAEE
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+/* RAEE Modal Styles */
+#raeeModal.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 9999;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    backdrop-filter: blur(5px);
+}
+#raeeModal.modal-overlay.active {
+    display: flex !important;
+}
+#raeeModal .raee-checkbox:hover {
+    border-color: var(--success) !important;
+    background: rgba(16, 185, 129, 0.1) !important;
+}
+#raeeModal .raee-checkbox:has(input:checked) {
+    border-color: var(--success) !important;
+    background: rgba(16, 185, 129, 0.15) !important;
+}
+@media (max-width: 600px) {
+    #raeeModal label[style*="grid-template-columns"] {
+        grid-template-columns: 1fr !important;
+    }
+}
+</style>
+
+<script>
+// ==================== RAEE MODAL ====================
+(function() {
+    'use strict';
+    window.raeePhotoData = null;
+    window.currentTicketForRaee = null;
+    
+    window.toggleNessunoRaee = function() {
+        const nessunoChecked = document.getElementById('raeeNessuno').checked;
+        const detailsSection = document.getElementById('raeeDetailsSection');
+        const photoSection = document.getElementById('raeePhotoSection');
+        const checkboxes = document.querySelectorAll('input[name="raeeType"]:not(#raeeNessuno)');
+        
+        if (nessunoChecked) {
+            detailsSection.style.display = 'none';
+            photoSection.style.display = 'none';
+            checkboxes.forEach(cb => { cb.checked = false; cb.disabled = true; });
+        } else {
+            detailsSection.style.display = 'block';
+            photoSection.style.display = 'block';
+            checkboxes.forEach(cb => { cb.disabled = false; });
+        }
+    };
+    
+    window.openRaeeModal = function(ticketId, interventionType, clientInfo) {
+        const modal = document.getElementById('raeeModal');
+        const form = document.getElementById('raeeForm');
+        form.reset();
+        window.raeePhotoData = null;
+        window.currentTicketForRaee = ticketId;
+        
+        document.getElementById('raeeDetailsSection').style.display = 'block';
+        document.getElementById('raeePhotoSection').style.display = 'block';
+        document.querySelectorAll('input[name="raeeType"]').forEach(cb => { cb.disabled = false; });
+        document.getElementById('raeePhotoPreview').style.display = 'none';
+        document.getElementById('raeePhotoPlaceholder').style.display = 'block';
+        
+        document.getElementById('raeeTicketId').value = ticketId || '';
+        document.getElementById('raeeInterventionType').value = interventionType || '';
+        document.getElementById('raeeInterventionInfo').textContent = clientInfo || 'Intervento completato';
+        
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        
+        if (typeof Store !== 'undefined' && Store.addLog) {
+            Store.addLog(`Apertura modale RAEE per ticket: ${ticketId}`);
+        }
+    };
+    
+    window.skipRaeeModal = function() {
+        const modal = document.getElementById('raeeModal');
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+        
+        if (typeof Store !== 'undefined' && Store.addLog && window.currentTicketForRaee) {
+            Store.addLog(`RAEE saltato per ticket: ${window.currentTicketForRaee}`);
+        }
+        
+        window.currentTicketForRaee = null;
+        window.raeePhotoData = null;
+    };
+    
+    window.handleRaeePhotoUpload = function(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            window.raeePhotoData = e.target.result;
+            document.getElementById('raeePhotoImg').src = window.raeePhotoData;
+            document.getElementById('raeePhotoPreview').style.display = 'block';
+            document.getElementById('raeePhotoPlaceholder').style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    };
+    
+    window.removeRaeePhoto = function() {
+        window.raeePhotoData = null;
+        document.getElementById('raeePhotoInput').value = '';
+        document.getElementById('raeePhotoPreview').style.display = 'none';
+        document.getElementById('raeePhotoPlaceholder').style.display = 'block';
+    };
+    
+    window.saveRaee = function(event) {
+        event.preventDefault();
+        
+        const ticketId = document.getElementById('raeeTicketId').value;
+        const nessuno = document.getElementById('raeeNessuno').checked;
+        
+        const selectedTypes = [];
+        document.querySelectorAll('input[name="raeeType"]:checked').forEach(cb => {
+            if (cb.value !== 'nessuno') selectedTypes.push(cb.value);
+        });
+        
+        if (!nessuno && selectedTypes.length === 0) {
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Seleziona almeno una tipologia RAEE o "Nessun RAEE"', 'error');
+            }
+            return;
+        }
+        
+        if (!nessuno) {
+            const qty = document.getElementById('raeeQty').value;
+            const weight = document.getElementById('raeeWeight').value;
+            
+            if (!qty || qty < 1) {
+                if (typeof UI !== 'undefined' && UI.showToast) UI.showToast('Inserisci la quantità', 'error');
+                return;
+            }
+            if (!weight || weight <= 0) {
+                if (typeof UI !== 'undefined' && UI.showToast) UI.showToast('Inserisci il peso', 'error');
+                return;
+            }
+        }
+        
+        const raeeData = {
+            id: 'RAEE-' + Date.now(),
+            ticketId: ticketId,
+            interventionType: document.getElementById('raeeInterventionType').value,
+            types: nessuno ? [] : selectedTypes,
+            nessunoRaee: nessuno,
+            qty: nessuno ? 0 : parseInt(document.getElementById('raeeQty').value),
+            weight: nessuno ? 0 : parseFloat(document.getElementById('raeeWeight').value),
+            brand: document.getElementById('raeeBrand').value.trim(),
+            photo: window.raeePhotoData,
+            notes: document.getElementById('raeeNotes').value.trim(),
+            createdAt: new Date().toISOString(),
+            createdBy: typeof Auth !== 'undefined' && Auth.currentUser ? Auth.currentUser.username : 'unknown'
+        };
+        
+        if (typeof db !== 'undefined' && db.collection) {
+            db.collection("raee").doc(raeeData.id).set(raeeData)
+                .then(() => console.log('RAEE salvato su Firestore'))
+                .catch(err => console.error('Errore salvataggio RAEE:', err));
+        }
+        
+        const savedRaee = JSON.parse(localStorage.getItem('raeeRecords') || '[]');
+        savedRaee.push(raeeData);
+        localStorage.setItem('raeeRecords', JSON.stringify(savedRaee));
+        
+        if (typeof Store !== 'undefined' && Store.addLog) {
+            Store.addLog(`RAEE registrato per ticket ${ticketId}: ${nessuno ? 'Nessuno' : selectedTypes.join(', ')}`);
+        }
+        
+        if (typeof UI !== 'undefined' && UI.showToast) {
+            UI.showToast(nessuno ? 'RAEE registrato: nessun ritiro' : 'RAEE registrato con successo!', 'success');
+        }
+        
+        const modal = document.getElementById('raeeModal');
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+        
+        window.currentTicketForRaee = null;
+        window.raeePhotoData = null;
+    };
+    
+    // Drag & drop
+    const dropZone = document.getElementById('raeeDropZone');
+    if (dropZone) {
+        dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.style.borderColor = 'var(--success)'; });
+        dropZone.addEventListener('dragleave', function(e) { e.preventDefault(); this.style.borderColor = 'var(--border-color)'; });
+        dropZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.style.borderColor = 'var(--border-color)';
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    window.raeePhotoData = event.target.result;
+                    document.getElementById('raeePhotoImg').src = window.raeePhotoData;
+                    document.getElementById('raeePhotoPreview').style.display = 'block';
+                    document.getElementById('raeePhotoPlaceholder').style.display = 'none';
+                };
+                reader.readAsDataURL(files[0]);
+            }
+        });
+    }
+    
+    // Chiudi con ESC
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('raeeModal');
+            if (modal && modal.classList.contains('active')) skipRaeeModal();
+        }
+    });
+    
+    console.log('✅ RAEE Modal System initialized');
+})();
+</script>
+<!-- ==================== END RAEE MODAL ==================== -->
 </body>
 </html>
