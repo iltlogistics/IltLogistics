@@ -2973,8 +2973,11 @@
                     }, { once: true });
                     // Fallback: controlla sessione locale dopo un timeout
                     setTimeout(() => {
-                        if (!Auth.initComplete) { Auth.checkLocalSession(); }
-                    }, 3000);
+                        if (!Auth.initComplete) { 
+                            console.warn("Timeout Auth, forzo caricamento locale.");
+                            Auth.checkLocalSession(); 
+                        }
+                    }, 5000);
                 }
             },
             checkLocalSession: () => {
@@ -3160,7 +3163,9 @@
                 // Aspetta che l'autenticazione Firebase sia pronta prima di fare query
                 const doSetup = () => {
                     console.log('🔧 Store.setup() - auth pronta, inizio query Firestore');
-                    db.collection("interventions").orderBy("client.dataIntervento", "desc").onSnapshot(snapshot => { 
+                    db.collection("interventions")
+                        // .orderBy("client.dataIntervento", "desc") // TEMPORANEAMENTE DISABILITATO per vedere tutti gli interventi
+                        .onSnapshot(snapshot => { 
     Store.localInterventions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
     
     // Controllo automatico: cambia stato da 'assegnato' a 'in corso' se la data è odierna
@@ -6099,20 +6104,42 @@ Vuoi generare il resoconto giornaliero completo?`,
             if (id) { 
                 const data = { username, role, location }; 
                 if (pass) data.password = pass; 
-                db.collection("users").doc(id).update(data); 
-                Store.addLog(`Admin ha modificato l'utente ${username} (sede: ${location})`); 
-                UI.showToast('Utente modificato!', 'success');
+                db.collection("users").doc(id).update(data)
+                    .then(() => {
+                        Store.addLog(`Admin ha modificato l'utente ${username} (sede: ${location})`); 
+                        UI.showToast('Utente modificato!', 'success');
+                        UI.closeModal('userModal');
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        UI.showToast('Errore modifica: ' + err.message, 'error');
+                    });
             } else { 
                 if (!pass) { 
                     UI.showToast('Password obbligatoria per nuovi utenti', 'error'); 
                     return; 
                 } 
+                
+                // AGGIUNGI QUI UN LOG PER DEBUG
+                console.log("Tentativo creazione utente:", { username, role, location });
+
                 const newId = Utils.generateId(); 
-                db.collection("users").doc(newId).set({ id: newId, username, password: pass, role, location }); 
-                Store.addLog(`Admin ha creato l'utente ${username} (sede: ${location})`); 
-                UI.showToast('Nuovo utente creato!', 'success');
+                db.collection("users").doc(newId).set({ id: newId, username, password: pass, role, location })
+                    .then(() => { 
+                        Store.addLog(`Admin ha creato l'utente ${username} (sede: ${location})`); 
+                        UI.showToast('Nuovo utente creato!', 'success');
+                        UI.closeModal('userModal');
+                    })
+                    .catch(err => {
+                        console.error("ERRORE GRAVE CREAZIONE UTENTE:", err);
+                        // Verifica se è un errore di permessi
+                        if (err.code === 'permission-denied') {
+                            UI.showToast('ERRORE CRITICO: Permesso negato da Firebase! Controlla le regole del database.', 'error');
+                        } else {
+                            UI.showToast('Errore creazione: ' + err.message, 'error');
+                        }
+                    }); 
             } 
-            UI.closeModal('userModal'); 
         },
         deleteUser: (id) => {
             const u = Store.getUsers().find(x => x.id === id);
